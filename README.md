@@ -8,7 +8,7 @@
 
 [![Download App](https://img.shields.io/badge/Download-Android-green?style=for-the-badge&logo=android)](https://drive.usercontent.google.com/download?id=1Wr3IqYVE6PAhmIxaFmMak3I0B7jZ2vWi&export=download&authuser=0)
 [![Website](https://img.shields.io/badge/Website-Vercel-black?style=for-the-badge&logo=vercel)](https://eduguide-app.vercel.app/)
-[![Version](https://img.shields.io/badge/Version-1.0.1-blue?style=for-the-badge)](https://github.com/sahilmishra03/eduguide-app)
+[![Version](https://img.shields.io/badge/Version-1.0.1-blue?style=for-the-badge)](https://github.com/krishgupta-5/eduguide-app)
 [![Flutter](https://img.shields.io/badge/Flutter-3.19+-blue?style=for-the-badge&logo=flutter)](https://flutter.dev)
 
 </div>
@@ -110,7 +110,7 @@ Trusted by 500+ students across campuses, EduGuide simplifies your academic jour
 ### Clone and Run
 ```bash
 # Clone the repository
-git clone https://github.com/sahilmishra03/eduguide-app.git
+git clone https://github.com/krishgupta-5/eduguide-app
 cd eduguide-app
 
 # Install dependencies
