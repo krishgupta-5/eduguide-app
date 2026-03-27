@@ -166,7 +166,7 @@ lib/
 
 [![Krish Gupta](https://img.shields.io/badge/Krish_Gupta-LinkedIn-blue?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/krishgupta7/)
 [![Sahil Mishra](https://img.shields.io/badge/Sahil_Mishra-LinkedIn-blue?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/sahilmishra03/)
-
+[![Rahul Kumar Maurya](https://img.shields.io/badge/Rahul_Kumar_Maurya-LinkedIn-blue?style=for-the-badge&logo=linkedin)](https://www.linkedin.com/in/rahul6386/)
 </div>
 
 ## 📞 Support & Contact
