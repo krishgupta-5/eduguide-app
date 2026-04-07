@@ -45,20 +45,93 @@ class _HomePageState extends State<HomePage> {
             .collection('rating_summary')
             .snapshots(),
         builder: (context, ratingSnap) {
-          if (!ratingSnap.hasData) {
+          if (ratingSnap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
+          if (ratingSnap.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.error_outline, size: 48, color: Colors.grey[400]),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Error loading ratings',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Please check your connection and try again',
+                    style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                  ),
+                ],
+              ),
+            );
+          }
+
           _ratingMap.clear();
-          for (var doc in ratingSnap.data!.docs) {
-            _ratingMap[doc.id] = (doc['avgRating'] ?? 0).toDouble();
+          if (ratingSnap.hasData) {
+            for (var doc in ratingSnap.data!.docs) {
+              _ratingMap[doc.id] = (doc['avgRating'] ?? 0).toDouble();
+            }
           }
 
           return StreamBuilder<QuerySnapshot>(
             stream: _professorsService.getProfessorsStream(),
             builder: (context, profSnap) {
-              if (!profSnap.hasData) {
+              if (profSnap.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
+              }
+
+              if (profSnap.hasError) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        size: 48,
+                        color: Colors.grey[400],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Error loading professors',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Please check your connection and try again',
+                        style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              if (!profSnap.hasData || profSnap.data!.docs.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.school_outlined,
+                        size: 48,
+                        color: Colors.grey[400],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No professors available',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Professors will appear here once added',
+                        style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                      ),
+                    ],
+                  ),
+                );
               }
 
               final docs = profSnap.data!.docs;
@@ -82,6 +155,31 @@ class _HomePageState extends State<HomePage> {
               }
 
               final visibleCategories = categoryMap.entries.take(3);
+
+              if (visibleCategories.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.star_outline,
+                        size: 48,
+                        color: Colors.grey[400],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'No rated professors yet',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Professors with ratings will appear here',
+                        style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                      ),
+                    ],
+                  ),
+                );
+              }
 
               return ListView(
                 padding: const EdgeInsets.all(16),

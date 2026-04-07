@@ -9,8 +9,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  firebase_core: ^4.0.0
+  firebase_core: ^4.6.0
   firebase_auth: ^6.0.1
+  firebase_app_check: ^0.4.2
   shared_preferences: ^2.5.3
   font_awesome_flutter: ^10.2.1
   firebase_storage: ^13.0.0
