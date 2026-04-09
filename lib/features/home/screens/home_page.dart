@@ -1,10 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:eduguide/features/professors/screens/professors_profile.dart';
 import 'package:eduguide/features/professors/services/professor_service.dart';
-import 'package:eduguide/features/widgets/professor_status_helper.dart';
+import 'package:eduguide/features/professors/models/professor.dart';
+import 'package:eduguide/core/utils/image_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-
-import '../../professors/screens/professors_profile.dart';
+import 'package:eduguide/features/professors/widgets/fast_network_image.dart';
 
 // --- Constants ---
 Color primaryBlue = const Color(0xFF407BFF);
@@ -25,6 +26,12 @@ class _HomePageState extends State<HomePage> {
   final ProfessorsService _professorsService = ProfessorsService();
 
   final Map<String, double> _ratingMap = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _professorsService.loadProfessorsFromJson();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -77,14 +84,14 @@ class _HomePageState extends State<HomePage> {
             }
           }
 
-          return StreamBuilder<QuerySnapshot>(
-            stream: _professorsService.getProfessorsStream(),
-            builder: (context, profSnap) {
-              if (profSnap.connectionState == ConnectionState.waiting) {
+          return AnimatedBuilder(
+            animation: _professorsService,
+            builder: (context, child) {
+              if (_professorsService.isLoading) {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              if (profSnap.hasError) {
+              if (_professorsService.error != null) {
                 return Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -109,7 +116,7 @@ class _HomePageState extends State<HomePage> {
                 );
               }
 
-              if (!profSnap.hasData || profSnap.data!.docs.isEmpty) {
+              if (_professorsService.professors.isEmpty) {
                 return Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -134,24 +141,17 @@ class _HomePageState extends State<HomePage> {
                 );
               }
 
-              final docs = profSnap.data!.docs;
-              final Map<String, List<Map<String, dynamic>>> categoryMap = {};
+              final professors = _professorsService.professors;
+              final Map<String, List<Professor>> categoryMap = {};
 
-              for (var doc in docs) {
-                final data = doc.data() as Map<String, dynamic>;
-                final id = doc.id;
+              for (var professor in professors) {
+                if (!_ratingMap.containsKey(professor.facultyId)) continue;
 
-                if (!_ratingMap.containsKey(id)) continue;
+                final category = professor.cleanExpertise;
+                if (category.isEmpty) continue;
 
-                data['id'] = id;
-                data['rating'] = _ratingMap[id];
-
-                final specs = (data['specializations'] as List<dynamic>? ?? []);
-                if (specs.isEmpty) continue;
-
-                final category = specs.first.toString();
                 categoryMap.putIfAbsent(category, () => []);
-                categoryMap[category]!.add(data);
+                categoryMap[category]!.add(professor);
               }
 
               final visibleCategories = categoryMap.entries.take(3);
@@ -211,7 +211,13 @@ class _HomePageState extends State<HomePage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _sectionTitle("Top Rated in ${entry.key}"),
-                        ...profs.map((p) => _teacherCard(context, p)),
+                        ...profs.map(
+                          (p) => _teacherCard(
+                            context,
+                            p,
+                            _ratingMap[p.facultyId] ?? 0.0,
+                          ),
+                        ),
                         const SizedBox(height: 20),
                       ],
                     );
@@ -226,17 +232,34 @@ class _HomePageState extends State<HomePage> {
   }
 
   // --------------------------------------------------
-  Widget _teacherCard(BuildContext context, Map<String, dynamic> data) {
-    final rating = data['rating'] as double;
-    final name = data['name'] ?? '';
-    final specs = (data['specializations'] as List<dynamic>).join(', ');
-    final imageUrl = data['image'];
+  Widget _teacherCard(
+    BuildContext context,
+    Professor professor,
+    double rating,
+  ) {
+    final name = professor.fullName;
+    final specs = professor.cleanExpertise;
+    final imageUrl = professor.image;
 
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ProfessorDetailPage(data: data)),
+          MaterialPageRoute(
+            builder: (_) => ProfessorDetailPage(
+              data: {
+                'id': professor.facultyId,
+                'name': professor.fullName,
+                'email': professor.email,
+                'department': professor.cleanDepartment,
+                'specializations': professor.cleanExpertise,
+                'Image': professor.image,
+                'is_guide': professor.cleanIsGuide,
+                'rating': rating,
+                'availability': professor.availability,
+              },
+            ),
+          ),
         );
       },
       child: Container(
@@ -248,12 +271,22 @@ class _HomePageState extends State<HomePage> {
         ),
         child: Row(
           children: [
-            CircleAvatar(
-              radius: 30,
-              backgroundImage: imageUrl != null ? NetworkImage(imageUrl) : null,
-              child: imageUrl == null
-                  ? Icon(Icons.person, color: primaryBlue)
-                  : null,
+            SizedBox(
+              width: 60,
+              height: 60,
+              child: imageUrl != null && isValidImageUrl(imageUrl)
+                  ? FastNetworkImage(
+                      imageUrl: imageUrl,
+                      width: 60,
+                      height: 60,
+                      fit: BoxFit.cover,
+                    )
+                  : ClipOval(
+                      child: Container(
+                        color: Colors.grey[200],
+                        child: Icon(Icons.person, color: primaryBlue),
+                      ),
+                    ),
             ),
             const SizedBox(width: 16),
 
@@ -261,7 +294,7 @@ class _HomePageState extends State<HomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  /// NAME + STATUS
+                  /// NAME
                   Row(
                     children: [
                       Expanded(
@@ -270,7 +303,6 @@ class _HomePageState extends State<HomePage> {
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
-                      _statusBadge(data),
                     ],
                   ),
 
@@ -290,57 +322,6 @@ class _HomePageState extends State<HomePage> {
             ),
             const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
           ],
-        ),
-      ),
-    );
-  }
-
-  // --------------------------------------------------
-  Widget _statusBadge(Map<String, dynamic> data) {
-    final availability = data['availability'] as Map<String, dynamic>? ?? {};
-
-    final result = ProfessorStatusHelper.calculate(availability);
-
-    // Don't show any badge outside college hours (before 9AM or after 5PM)
-    if (result.status == ProfessorStatus.outsideCollegeHours) {
-      return const SizedBox.shrink();
-    }
-
-    Color color;
-    String text;
-
-    switch (result.status) {
-      case ProfessorStatus.inCabin:
-        color = Colors.green;
-        text = "IN CABIN";
-        break;
-      case ProfessorStatus.busy:
-        color = Colors.orange;
-        text = result.nextAvailableIn != null
-            ? "BUSY • ${result.nextAvailableIn!.inMinutes} min"
-            : "BUSY";
-        break;
-      default:
-        color = Colors.red;
-        text = "ABSENT";
-    }
-
-    return _badge(text, color);
-  }
-
-  Widget _badge(String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-          color: color,
         ),
       ),
     );

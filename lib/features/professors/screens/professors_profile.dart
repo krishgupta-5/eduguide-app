@@ -1,10 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:eduguide/features/rating_professors/rating_service.dart';
 import 'package:eduguide/features/widgets/professor_status_helper.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:eduguide/features/services/email_service.dart';
+
+import 'package:eduguide/features/professors/widgets/fast_network_image.dart';
+import 'package:eduguide/core/utils/image_utils.dart';
 
 // --- Constants ---
 const Color primaryBlue = Color(0xFF407BFF);
@@ -27,6 +30,7 @@ class _ProfessorDetailPageState extends State<ProfessorDetailPage> {
   int selectedDay = 0;
   int selectedRating = 0;
   final RatingService _ratingService = RatingService();
+  late Future<bool> _hasRatedFuture;
 
   static const List<String> weekDays = [
     'Monday',
@@ -36,8 +40,16 @@ class _ProfessorDetailPageState extends State<ProfessorDetailPage> {
     'Friday',
   ];
 
-  /// TEMP user id (replace with FirebaseAuth uid later)
-  final String currentUserId = "TEST_USER_1";
+  String get currentUserId => FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  @override
+  void initState() {
+    super.initState();
+    _hasRatedFuture = _ratingService.hasUserRated(
+      widget.data['id'],
+      FirebaseAuth.instance.currentUser?.uid ?? '',
+    );
+  }
 
   // ---------------- URL LAUNCH ----------------
   Future<void> _launchURL(String urlString) async {
@@ -47,139 +59,6 @@ class _ProfessorDetailPageState extends State<ProfessorDetailPage> {
     }
   }
 
-  // ---------------- GET USER DATA FROM FIRESTORE ----------------
-  Future<Map<String, dynamic>?> _getUserData() async {
-    try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) return null;
-
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(currentUser.uid)
-          .get();
-
-      if (userDoc.exists) {
-        return userDoc.data() as Map<String, dynamic>;
-      }
-      return null;
-    } catch (e) {
-      print('Error fetching user data: $e');
-      return null;
-    }
-  }
-
-  // ---------------- BOOK SESSION ----------------
-  Future<void> _bookSession() async {
-    try {
-      final professorId = widget.data['id'];
-      final professorName = widget.data['name'] ?? 'Professor';
-      final currentUser = FirebaseAuth.instance.currentUser;
-
-      if (currentUser == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Please login to book a session")),
-        );
-        return;
-      }
-
-      // Get user data from Firestore to get the actual name
-      final userData = await _getUserData();
-      final studentName =
-          userData?['name'] ??
-          currentUser.displayName ??
-          currentUser.email?.split('@')[0] ??
-          'Student';
-
-      // Send notification to professor
-      await FirebaseFirestore.instance.collection('notifications').add({
-        'professorId': professorId,
-        'studentId': currentUser.uid,
-        'studentName': studentName,
-        'studentEmail': currentUser.email,
-        'professorEmail': 'sahil253636@gmail.com', // Test email for professor
-        'message': 'Student wants to meet you',
-        'timestamp': FieldValue.serverTimestamp(),
-        'status': 'pending',
-        'type': 'session_request',
-      });
-
-      // Send actual email
-      await _sendEmailToProfessor(
-        professorEmail: 'sahil253636@gmail.com',
-        studentName: studentName,
-        studentEmail: currentUser.email ?? 'No email provided',
-        professorName: professorName,
-      );
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Session request sent to $professorName"),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error booking session: $e")));
-    }
-  }
-
-  // ---------------- SEND EMAIL ----------------
-  Future<void> _sendEmailToProfessor({
-    required String professorEmail,
-    required String studentName,
-    required String studentEmail,
-    required String professorName,
-  }) async {
-    try {
-      final subject = "Session Request from Student";
-      final body =
-          '''
-Dear Professor $professorName,
-
-A student has requested to meet with you:
-
-Student Name: $studentName
-Student Email: $studentEmail
-Message: Student wants to meet you
-
-Please check your notifications in the EduGuide app for more details.
-
-Best regards,
-EduGuide Team
-      ''';
-
-      // Send email directly using EmailService
-      final success = await EmailService.sendSessionRequestEmail(
-        toEmail: '211822@kit.ac.in',
-        professorName: professorName,
-        studentName: studentName,
-        studentEmail: studentEmail,
-        messageContent: body,
-      );
-
-      if (success) {
-        print("Email sent successfully to $professorEmail");
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Email sent successfully!"),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        print("Failed to send email to $professorEmail");
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Failed to send email, but notification was saved"),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
-      print("Error sending email: $e");
-      // Continue even if email fails - notification is saved in Firestore
-    }
-  }
 
   // ---------------- SUBMIT RATING ----------------
   Future<void> _submitRating(int rating) async {
@@ -222,8 +101,10 @@ EduGuide Team
   // ---------------- BUILD ----------------
   @override
   Widget build(BuildContext context) {
-    final availabilityMap =
-        widget.data['availability'] as Map<String, dynamic>? ?? {};
+    final rawAvailability = widget.data['availability'];
+    final availabilityMap = rawAvailability is Map
+        ? Map<String, dynamic>.from(rawAvailability)
+        : <String, dynamic>{};
 
     final availableDays = weekDays
         .where((d) => availabilityMap.containsKey(d))
@@ -232,6 +113,20 @@ EduGuide Team
     if (selectedDay >= availableDays.length && availableDays.isNotEmpty) {
       selectedDay = 0;
     }
+
+    // Build expertise/specialization list from available data
+    final specializations = _parseStringToList(
+      widget.data['specializations']?.toString(),
+    );
+
+    // Build qualifications from available data
+    final qualifications = _parseStringToList(
+      widget.data['qualifications']?.toString(),
+    );
+
+    // is_guide info
+    final isGuide = widget.data['is_guide']?.toString() ?? '';
+    final guideAreas = _parseStringToList(isGuide);
 
     return Scaffold(
       backgroundColor: lightBackground,
@@ -252,27 +147,65 @@ EduGuide Team
           _buildRatingSection(),
           const SizedBox(height: 24),
 
-          _buildInfoCard(
-            title: "Qualifications",
-            icon: Icons.school_rounded,
-            children: (widget.data['qualifications'] as List<dynamic>? ?? [])
-                .map((e) => _buildListItem(e.toString()))
-                .toList(),
-          ),
+          // Department
+          if (widget.data['department'] != null &&
+              widget.data['department'].toString().isNotEmpty)
+            ...[
+              _buildInfoCard(
+                title: "Department",
+                icon: Icons.apartment_rounded,
+                children: [
+                  _buildListItem(widget.data['department'].toString()),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
 
-          _buildInfoCard(
-            title: "Research Areas",
-            icon: Icons.science_rounded,
-            children: (widget.data['research'] as List<dynamic>? ?? [])
-                .map((e) => _buildListItem(e.toString()))
-                .toList(),
-          ),
+          // Specializations / Research Areas
+          if (specializations.isNotEmpty)
+            ...[
+              _buildInfoCard(
+                title: "Specializations",
+                icon: Icons.science_rounded,
+                children: specializations.map((e) => _buildListItem(e)).toList(),
+              ),
+              const SizedBox(height: 16),
+            ],
 
-          _buildInfoCard(
-            title: "Research Papers",
-            icon: Icons.article_rounded,
-            children: (widget.data['research_papers'] as List<dynamic>? ?? [])
-                .map((paper) {
+          // Guide Areas (from is_guide field)
+          if (guideAreas.isNotEmpty &&
+              isGuide != '0' &&
+              isGuide != '1' &&
+              isGuide.isNotEmpty)
+            ...[
+              _buildInfoCard(
+                title: "Guide Areas",
+                icon: Icons.school_rounded,
+                children: guideAreas.map((e) => _buildListItem(e)).toList(),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+          // Qualifications (from Firestore if available)
+          if (qualifications.isNotEmpty)
+            ...[
+              _buildInfoCard(
+                title: "Qualifications",
+                icon: Icons.workspace_premium_rounded,
+                children: qualifications.map((e) => _buildListItem(e)).toList(),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+          // Research Papers (from Firestore if available)
+          if (widget.data['research_papers'] != null)
+            ...[
+              _buildInfoCard(
+                title: "Research Papers",
+                icon: Icons.article_rounded,
+                children: _parseResearchPapers(widget.data['research_papers']).map((
+                  paper,
+                ) {
                   final String title = paper['title'] ?? 'Untitled';
                   final String? link = paper['link'];
                   return _buildListItem(
@@ -280,100 +213,107 @@ EduGuide Team
                     isLink: link != null,
                     onTap: link != null ? () => _launchURL(link) : null,
                   );
-                })
-                .toList(),
-          ),
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+            ],
 
+          // Contact
           _buildInfoCard(
             title: "Contact",
             icon: Icons.contact_mail_rounded,
             children: [
               _contactRow(
                 Icons.email_outlined,
-                widget.data['contact']?['email'] ?? 'N/A',
+                widget.data['email']?.toString() ??
+                    widget.data['contact']?['email'] ??
+                    'N/A',
               ),
-              _contactRow(
-                Icons.phone_outlined,
-                widget.data['contact']?['phone'] ?? 'N/A',
-              ),
-              _contactRow(
-                Icons.location_on_outlined,
-                widget.data['office'] ?? 'N/A',
-              ),
+              if (widget.data['contact']?['phone'] != null)
+                _contactRow(
+                  Icons.phone_outlined,
+                  widget.data['contact']['phone'],
+                ),
+              if (widget.data['office'] != null)
+                _contactRow(
+                  Icons.location_on_outlined,
+                  widget.data['office'],
+                ),
             ],
           ),
 
-          _buildInfoCard(
-            title: "Weekly Availability",
-            icon: Icons.calendar_today_rounded,
-            children: [
-              if (availableDays.isEmpty)
-                const Text("Availability not provided")
-              else ...[
-                // Day selector buttons - show only available days
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: availableDays.asMap().entries.map((entry) {
-                      final index = entry.key;
-                      final day = entry.value;
-                      final isSelected = selectedDay == index;
+          // Weekly Availability (only show if data exists)
+          if (availableDays.isNotEmpty)
+            ...[
+              const SizedBox(height: 16),
+              _buildInfoCard(
+                title: "Weekly Availability",
+                icon: Icons.calendar_today_rounded,
+                children: [
+                  // Day selector buttons - show only available days
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: availableDays.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final day = entry.value;
+                        final isSelected = selectedDay == index;
 
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: GestureDetector(
-                          onTap: () => setState(() => selectedDay = index),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isSelected ? primaryBlue : lightBackground,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: isSelected
-                                    ? primaryBlue
-                                    : primaryBlue.withOpacity(0.3),
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: GestureDetector(
+                            onTap: () => setState(() => selectedDay = index),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
                               ),
-                            ),
-                            child: Text(
-                              day,
-                              style: TextStyle(
-                                color: isSelected ? Colors.white : textBody,
-                                fontWeight: isSelected
-                                    ? FontWeight.bold
-                                    : FontWeight.w500,
-                                fontSize: 14,
+                              decoration: BoxDecoration(
+                                color: isSelected ? primaryBlue : lightBackground,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? primaryBlue
+                                      : primaryBlue.withOpacity(0.3),
+                                ),
+                              ),
+                              child: Text(
+                                day,
+                                style: TextStyle(
+                                  color: isSelected ? Colors.white : textBody,
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.w500,
+                                  fontSize: 14,
+                                ),
                               ),
                             ),
                           ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Selected day's availability
+                  Builder(
+                    builder: (context) {
+                      final selectedDayName = availableDays[selectedDay];
+                      final availability =
+                          availabilityMap[selectedDayName] ?? 'Not Available';
+
+                      return Text(
+                        "$selectedDayName: $availability",
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: textBody,
                         ),
                       );
-                    }).toList(),
+                    },
                   ),
-                ),
-                const SizedBox(height: 12),
-                // Selected day's availability
-                Builder(
-                  builder: (context) {
-                    final selectedDayName = availableDays[selectedDay];
-                    final availability =
-                        availabilityMap[selectedDayName] ?? 'Not Available';
-
-                    return Text(
-                      "$selectedDayName: $availability",
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: textBody,
-                      ),
-                    );
-                  },
-                ),
-              ],
+                ],
+              ),
             ],
-          ),
         ],
       ),
     );
@@ -381,8 +321,10 @@ EduGuide Team
 
   // ---------------- STATUS BADGE (UPDATED) ----------------
   Widget _statusBadge() {
-    final availability =
-        widget.data['availability'] as Map<String, dynamic>? ?? {};
+    final rawAvailability = widget.data['availability'];
+    final availability = rawAvailability is Map
+        ? Map<String, dynamic>.from(rawAvailability)
+        : <String, dynamic>{};
 
     final result = ProfessorStatusHelper.calculate(availability);
 
@@ -504,7 +446,7 @@ EduGuide Team
           const SizedBox(height: 16),
 
           FutureBuilder<bool>(
-            future: _ratingService.hasUserRated(professorId, currentUserId),
+            future: _hasRatedFuture,
             builder: (context, snapshot) {
               final hasRated = snapshot.data ?? false;
 
@@ -534,19 +476,39 @@ EduGuide Team
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 38,
-            backgroundColor: primaryBlue.withOpacity(0.1),
-            backgroundImage:
-                (widget.data['image'] != null &&
-                    widget.data['image'].toString().isNotEmpty)
-                ? NetworkImage(widget.data['image'])
-                : null,
-            child:
-                (widget.data['image'] == null ||
-                    widget.data['image'].toString().isEmpty)
-                ? const Icon(Icons.person, size: 36, color: primaryBlue)
-                : null,
+          Container(
+            width: 76,
+            height: 76,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: primaryBlue.withOpacity(0.1),
+            ),
+            child: isValidImageUrl(widget.data['Image']?.toString())
+                ? FastNetworkImage(
+                    imageUrl: widget.data['Image']!,
+                    width: 76,
+                    height: 76,
+                    fit: BoxFit.cover,
+                    placeholder: Container(
+                      width: 76,
+                      height: 76,
+                      decoration: BoxDecoration(
+                        color: primaryBlue.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.person,
+                        color: primaryBlue,
+                        size: 36,
+                      ),
+                    ),
+                    errorWidget: const Icon(
+                      Icons.person,
+                      size: 36,
+                      color: primaryBlue,
+                    ),
+                  )
+                : const Icon(Icons.person, size: 36, color: primaryBlue),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -562,32 +524,14 @@ EduGuide Team
                 ),
                 if (widget.data['specializations'] != null)
                   Text(
-                    (widget.data['specializations'] as List).join(', '),
+                    _parseStringToList(
+                      widget.data['specializations']?.toString(),
+                    ).join(', '),
                     style: const TextStyle(color: textSubtle),
                   ),
 
                 // ✅ STATUS BADGE (TOP, NO SCROLL)
                 _statusBadge(),
-
-                const SizedBox(height: 12),
-
-                // 📅 BOOK SESSION BUTTON
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _bookSession,
-                    icon: const Icon(Icons.calendar_today, size: 16),
-                    label: const Text("Book Session"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: primaryBlue,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
@@ -666,5 +610,50 @@ EduGuide Team
         ],
       ),
     );
+  }
+
+  /// Helper method to safely parse string to list
+  List<String> _parseStringToList(String? data) {
+    if (data == null || data.isEmpty) return [];
+
+    // Try to split by common delimiters
+    final delimiters = [',', ';', '\\n', '|'];
+    for (final delimiter in delimiters) {
+      if (data.contains(delimiter)) {
+        return data
+            .split(delimiter)
+            .map((item) => item.trim())
+            .where((item) => item.isNotEmpty)
+            .toList();
+      }
+    }
+
+    // If no delimiters found, return as single item
+    return [data.trim()];
+  }
+
+  /// Helper method to safely parse research papers
+  List<Map<String, dynamic>> _parseResearchPapers(dynamic data) {
+    if (data == null) return [];
+
+    if (data is List) {
+      return data.map((item) => item as Map<String, dynamic>? ?? {}).toList();
+    }
+
+    if (data is String) {
+      // If it's a string, try to parse as JSON or return empty
+      try {
+        final parsed = json.decode(data);
+        if (parsed is List) {
+          return parsed
+              .map((item) => item as Map<String, dynamic>? ?? {})
+              .toList();
+        }
+      } catch (e) {
+        // If parsing fails, return empty list
+      }
+    }
+
+    return [];
   }
 }

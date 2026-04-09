@@ -1,0 +1,26 @@
+[
+  {
+    "department_id": 2,
+    "department_name": "Chemical Engineering"
+  },
+  {
+    "department_id": 3,
+    "department_name": "Civil Engineering"
+  },
+  {
+    "department_id": 4,
+    "department_name": "Computer Science and Engineering"
+  },
+  {
+    "department_id": 5,
+    "department_name": "Biotechnology"
+  },
+  {
+    "department_id": 7,
+    "department_name": "Electrical / Electronics Engineering"
+  },
+  {
+    "department_id": 9,
+    "department_name": "Mechanical Engineering"
+  }
+]

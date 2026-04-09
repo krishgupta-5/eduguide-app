@@ -1,10 +1,11 @@
 import 'package:eduguide/features/home/screens/home_page.dart';
-import 'package:eduguide/features/professors/services/professor_service.dart';
 import 'package:eduguide/features/settings/screen/setting_page.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../professors/screens/professors_list.dart';
 import '../search/screen/search_page.dart';
+import '../departments/screens/departments_screen.dart';
+import '../professors/services/professor_service.dart';
 
 class BottomNavigation extends StatefulWidget {
   const BottomNavigation({super.key});
@@ -35,7 +36,8 @@ class _BottomNavigationState extends State<BottomNavigation> {
     super.initState();
     _widgetOptions = <Widget>[
       HomePage(onNavigate: _onItemTapped),
-      ProfessorsListPage(professorsService: _professorsService),
+      ProfessorsListPage(),
+      DepartmentsScreen(),
       SearchPage(professorsService: _professorsService),
       SettingsPage(),
     ];
@@ -59,6 +61,10 @@ class _BottomNavigationState extends State<BottomNavigation> {
           BottomNavigationBarItem(
             icon: FaIcon(FontAwesomeIcons.graduationCap),
             label: 'Teachers',
+          ),
+          BottomNavigationBarItem(
+            icon: FaIcon(FontAwesomeIcons.building),
+            label: 'Departments',
           ),
           BottomNavigationBarItem(
             icon: FaIcon(FontAwesomeIcons.magnifyingGlass),

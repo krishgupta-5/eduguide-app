@@ -1,7 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:eduguide/features/professors/screens/professors_profile.dart';
 import 'package:eduguide/features/professors/services/professor_service.dart';
+import 'package:eduguide/features/professors/models/professor.dart';
+import 'package:eduguide/features/professors/widgets/fast_network_image.dart';
 import 'package:eduguide/features/widgets/professor_status_helper.dart';
+import 'package:eduguide/core/utils/image_utils.dart';
 import 'package:flutter/material.dart';
 
 // --- Constants ---
@@ -50,71 +53,14 @@ class _SearchPageState extends State<SearchPage> {
         _searchQuery = _searchController.text;
       });
     });
+    // Load professors data from JSON
+    widget.professorsService.loadProfessorsFromJson();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
-  }
-
-  // --------------------------------------------------------
-  // FILTER + SORT
-  List<DocumentSnapshot> _applyFilters(List<DocumentSnapshot> all) {
-    List<DocumentSnapshot> temp = List.from(all);
-
-    // Remove duplicates based on professor name
-    final seenNames = <String>{};
-    temp = temp.where((doc) {
-      final data = doc.data() as Map<String, dynamic>;
-      final name = data['name'] as String? ?? '';
-      if (seenNames.contains(name)) {
-        return false; // Skip duplicate
-      }
-      seenNames.add(name);
-      return true;
-    }).toList();
-
-    if (_searchQuery.isNotEmpty) {
-      temp = temp.where((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        return (data['name'] ?? '').toLowerCase().contains(
-          _searchQuery.toLowerCase(),
-        );
-      }).toList();
-    }
-
-    if (_selectedSpecialization != 'All') {
-      temp = temp.where((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        final specs = (data['specializations'] ?? []) as List;
-        return specs.contains(_selectedSpecialization);
-      }).toList();
-    }
-
-    if (_selectedDay != 'All Days') {
-      temp = temp.where((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        final availability =
-            data['availability'] as Map<String, dynamic>? ?? {};
-
-        // Check for both capitalized and lowercase versions of the day
-        final hasCapitalized = availability.containsKey(_selectedDay);
-        final hasLowercase = availability.containsKey(
-          _selectedDay.toLowerCase(),
-        );
-
-        return hasCapitalized || hasLowercase;
-      }).toList();
-    }
-
-    temp.sort((a, b) {
-      final r1 = _ratingMap[a.id] ?? 0;
-      final r2 = _ratingMap[b.id] ?? 0;
-      return r2.compareTo(r1);
-    });
-
-    return temp;
   }
 
   // --------------------------------------------------------
@@ -151,43 +97,66 @@ class _SearchPageState extends State<SearchPage> {
                   }
                 }
 
-                return StreamBuilder<QuerySnapshot>(
-                  stream: widget.professorsService.getProfessorsStream(),
-                  builder: (context, profSnap) {
-                    if (!profSnap.hasData) {
+                return AnimatedBuilder(
+                  animation: widget.professorsService,
+                  builder: (context, child) {
+                    if (widget.professorsService.isLoading) {
                       return const Center(child: CircularProgressIndicator());
                     }
 
-                    final all = profSnap.data!.docs;
+                    final professors = widget.professorsService.professors;
 
                     if (_specializations.length == 1) {
-                      for (var doc in all) {
-                        final specs = (doc['specializations'] ?? []) as List;
+                      for (var professor in professors) {
+                        final specs = professor.cleanExpertise.split(', ');
                         for (var s in specs) {
-                          _specializations.add(s.toString());
+                          if (s.isNotEmpty) {
+                            _specializations.add(s);
+                          }
                         }
                       }
                     }
 
-                    final filtered = _applyFilters(all);
+                    final filtered = professors.where((professor) {
+                      final matchesSearch =
+                          _searchQuery.isEmpty ||
+                          professor.fullName.toLowerCase().contains(
+                            _searchQuery.toLowerCase(),
+                          ) ||
+                          professor.email.toLowerCase().contains(
+                            _searchQuery.toLowerCase(),
+                          ) ||
+                          professor.cleanDepartment.toLowerCase().contains(
+                            _searchQuery.toLowerCase(),
+                          ) ||
+                          professor.cleanExpertise.toLowerCase().contains(
+                            _searchQuery.toLowerCase(),
+                          );
+
+                      final matchesSpec =
+                          _selectedSpecialization == 'All' ||
+                          professor.cleanExpertise.toLowerCase().contains(
+                            _selectedSpecialization.toLowerCase(),
+                          );
+
+                      return matchesSearch && matchesSpec;
+                    }).toList();
 
                     if (filtered.isEmpty) {
                       return const Center(
                         child: Text(
-                          "No professors match your criteria.",
-                          style: TextStyle(color: textSubtle),
+                          'No professors found',
+                          style: TextStyle(fontSize: 16, color: textSubtle),
                         ),
                       );
                     }
 
                     return ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      padding: const EdgeInsets.all(16),
                       itemCount: filtered.length,
-                      itemBuilder: (context, idx) {
-                        final doc = filtered[idx];
-                        final data = doc.data() as Map<String, dynamic>;
-                        data['id'] = doc.id;
-                        return _buildProfessorCard(context, data);
+                      itemBuilder: (context, index) {
+                        final professor = filtered[index];
+                        return _buildProfessorCardFromModel(context, professor);
                       },
                     );
                   },
@@ -388,23 +357,36 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   // --------------------------------------------------------
-  // PROFESSOR CARD + STATUS
-  Widget _buildProfessorCard(BuildContext context, Map<String, dynamic> data) {
-    final name = data['name'] ?? '';
-    final specs = (data['specializations'] as List<dynamic>? ?? []).join(', ');
-    final imageUrl = data['image'] as String?;
-    final rating = _ratingMap[data['id']];
+  // PROFESSOR CARD FROM MODEL
+  Widget _buildProfessorCardFromModel(
+    BuildContext context,
+    Professor professor,
+  ) {
+    final rating = _ratingMap[professor.facultyId];
 
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ProfessorDetailPage(data: data)),
+          MaterialPageRoute(
+            builder: (_) => ProfessorDetailPage(
+              data: {
+                'id': professor.facultyId,
+                'name': professor.fullName,
+                'email': professor.email,
+                'department': professor.cleanDepartment,
+                'specializations': professor.cleanExpertise,
+                'Image': professor.image,
+                'is_guide': professor.cleanIsGuide,
+                'availability': professor.availability,
+              },
+            ),
+          ),
         );
       },
       child: Container(
-        margin: const EdgeInsets.only(top: 12),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: cardBackground,
           borderRadius: BorderRadius.circular(16),
@@ -418,15 +400,39 @@ class _SearchPageState extends State<SearchPage> {
         ),
         child: Row(
           children: [
-            CircleAvatar(
-              radius: 30,
-              backgroundColor: primaryBlue.withAlpha(26),
-              backgroundImage: imageUrl != null && imageUrl.isNotEmpty
-                  ? NetworkImage(imageUrl)
-                  : null,
-              child: (imageUrl == null || imageUrl.isEmpty)
-                  ? Icon(Icons.person, color: primaryBlue)
-                  : null,
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: primaryBlue.withAlpha(26),
+              ),
+              child: isValidImageUrl(professor.image)
+                  ? FastNetworkImage(
+                      imageUrl: professor.image!,
+                      width: 60,
+                      height: 60,
+                      fit: BoxFit.cover,
+                      placeholder: Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: primaryBlue.withAlpha(26),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.person,
+                          color: primaryBlue,
+                          size: 30,
+                        ),
+                      ),
+                      errorWidget: const Icon(
+                        Icons.person,
+                        color: primaryBlue,
+                        size: 30,
+                      ),
+                    )
+                  : const Icon(Icons.person, color: primaryBlue, size: 30),
             ),
             const SizedBox(width: 16),
 
@@ -439,45 +445,49 @@ class _SearchPageState extends State<SearchPage> {
                     children: [
                       Expanded(
                         child: Text(
-                          name,
+                          professor.fullName,
                           style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 17,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
                             color: textBody,
                           ),
                         ),
                       ),
-                      _statusBadge(data),
+                      _statusBadge({
+                        'availability': professor.availability,
+                        'is_guide': professor.cleanIsGuide,
+                      }),
                     ],
                   ),
-
                   const SizedBox(height: 4),
 
-                  if (specs.isNotEmpty)
-                    Text(
-                      specs,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: textSubtle),
-                    ),
-
-                  const SizedBox(height: 6),
-
+                  /// DEPARTMENT
                   Text(
-                    rating == null ? "⭐ New" : "⭐ ${rating.toStringAsFixed(1)}",
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      color: textBody,
-                    ),
+                    professor.cleanDepartment,
+                    style: const TextStyle(fontSize: 14, color: textSubtle),
+                  ),
+                  const SizedBox(height: 4),
+
+                  /// EXPERTISE
+                  Text(
+                    professor.cleanExpertise,
+                    style: const TextStyle(fontSize: 13, color: textSubtle),
+                  ),
+                  const SizedBox(height: 8),
+
+                  /// RATING
+                  Row(
+                    children: [
+                      const Icon(Icons.star, size: 16, color: Colors.amber),
+                      const SizedBox(width: 4),
+                      Text(
+                        rating?.toStringAsFixed(1) ?? 'No rating',
+                        style: const TextStyle(fontSize: 13, color: textSubtle),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ),
-
-            const Icon(
-              Icons.arrow_forward_ios_rounded,
-              color: Colors.grey,
-              size: 16,
             ),
           ],
         ),
@@ -488,7 +498,10 @@ class _SearchPageState extends State<SearchPage> {
   // --------------------------------------------------------
   // STATUS LOGIC
   Widget _statusBadge(Map<String, dynamic> data) {
-    final availability = data['availability'] as Map<String, dynamic>? ?? {};
+    final rawAvailability = data['availability'];
+    final availability = rawAvailability is Map
+        ? Map<String, dynamic>.from(rawAvailability)
+        : <String, dynamic>{};
 
     final result = ProfessorStatusHelper.calculate(availability);
 
@@ -536,4 +549,6 @@ class _SearchPageState extends State<SearchPage> {
       ),
     );
   }
+
+
 }
