@@ -1,9 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:eduguide/features/professors/screens/professors_profile.dart';
 import 'package:eduguide/features/professors/services/professor_service.dart';
-import 'package:eduguide/features/professors/models/professor.dart';
-import 'package:eduguide/features/professors/widgets/fast_network_image.dart';
-import 'package:eduguide/core/utils/image_utils.dart';
+import 'package:eduguide/features/widgets/professor_status_helper.dart';
 import 'package:flutter/material.dart';
 
 // --- Constants ---
@@ -13,28 +11,10 @@ const Color cardBackground = Colors.white;
 const Color textSubtle = Color(0xFF6E6E73);
 const Color textBody = Color(0xFF1D1D1F);
 
-class ProfessorsListPage extends StatefulWidget {
-  const ProfessorsListPage({super.key});
+class ProfessorsListPage extends StatelessWidget {
+  final ProfessorsService professorsService;
 
-  @override
-  State<ProfessorsListPage> createState() => _ProfessorsListPageState();
-}
-
-class _ProfessorsListPageState extends State<ProfessorsListPage> {
-  late ProfessorsService _professorsService;
-
-  @override
-  void initState() {
-    super.initState();
-    _professorsService = ProfessorsService();
-    _professorsService.loadProfessorsFromJson();
-  }
-
-  @override
-  void dispose() {
-    _professorsService.dispose();
-    super.dispose();
-  }
+  const ProfessorsListPage({required this.professorsService, super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -60,32 +40,27 @@ class _ProfessorsListPageState extends State<ProfessorsListPage> {
 
           /// PROFESSORS LIST
           Expanded(
-            child: AnimatedBuilder(
-              animation: _professorsService,
-              builder: (context, child) {
-                if (_professorsService.isLoading) {
+            child: StreamBuilder<QuerySnapshot>(
+              stream: professorsService.getProfessorsStream(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
                     child: CircularProgressIndicator(color: primaryBlue),
                   );
                 }
-                if (_professorsService.error != null) {
-                  return Center(
-                    child: Text(
-                      "Error: ${_professorsService.error}",
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                  );
-                }
-                if (_professorsService.professors.isEmpty) {
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return const Center(child: Text("No professors found."));
                 }
 
+                final docs = snapshot.data!.docs;
+
                 return ListView.builder(
                   padding: const EdgeInsets.all(16),
-                  itemCount: _professorsService.professors.length,
+                  itemCount: docs.length,
                   itemBuilder: (context, idx) {
-                    final professor = _professorsService.professors[idx];
-                    return _buildProfessorCard(context, professor);
+                    final data = docs[idx].data() as Map<String, dynamic>;
+                    data['id'] = docs[idx].id;
+                    return _buildProfessorCard(context, data);
                   },
                 );
               },
@@ -97,41 +72,69 @@ class _ProfessorsListPageState extends State<ProfessorsListPage> {
   }
 
   // ------------------------------------------------------------------
-  // ⚡ QUICK STATS STRIP
+  // ⚡ QUICK STATS STRIP (UNCHANGED)
   Widget _quickStatsStrip() {
-    return AnimatedBuilder(
-      animation: _professorsService,
-      builder: (context, child) {
-        final professors = _professorsService.professors;
-        final totalTeachers = professors.length;
-        final Set<String> departments = {};
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('professors').snapshots(),
+      builder: (context, profSnapshot) {
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('rating_summary')
+              .snapshots(),
+          builder: (context, ratingSnapshot) {
+            int totalTeachers = 0;
+            final Set<String> courses = {};
+            double avgRating = 0;
 
-        for (var professor in professors) {
-          departments.add(professor.cleanDepartment);
-        }
+            if (profSnapshot.hasData) {
+              final profDocs = profSnapshot.data!.docs;
+              totalTeachers = profDocs.length;
 
-        return Container(
-          margin: const EdgeInsets.all(16),
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            color: cardBackground,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
+              for (var doc in profDocs) {
+                final data = doc.data() as Map<String, dynamic>;
+                final specs = (data['specializations'] as List<dynamic>? ?? []);
+                for (var s in specs) {
+                  courses.add(s.toString());
+                }
+              }
+            }
+
+            if (ratingSnapshot.hasData &&
+                ratingSnapshot.data!.docs.isNotEmpty) {
+              double sum = 0;
+              for (var doc in ratingSnapshot.data!.docs) {
+                sum += (doc['avgRating'] ?? 0).toDouble();
+              }
+              avgRating = sum / ratingSnapshot.data!.docs.length;
+            }
+
+            return Container(
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              decoration: BoxDecoration(
+                color: cardBackground,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _statItem("👨‍🏫 Teachers", totalTeachers.toString()),
-              _statItem("📚 Departments", departments.length.toString()),
-              _statItem("⭐ Avg Rating", "4.2"),
-            ],
-          ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _statItem("👨‍🏫 Teachers", totalTeachers.toString()),
+                  _statItem("📚 Courses", courses.length.toString()),
+                  _statItem(
+                    "⭐ Avg Rating",
+                    avgRating == 0 ? "--" : avgRating.toStringAsFixed(1),
+                  ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
@@ -162,26 +165,19 @@ class _ProfessorsListPageState extends State<ProfessorsListPage> {
   }
 
   // ------------------------------------------------------------------
-  // PROFESSOR CARD
-  Widget _buildProfessorCard(BuildContext context, Professor professor) {
+  // PROFESSOR CARD (STATUS ADDED)
+  Widget _buildProfessorCard(BuildContext context, Map<String, dynamic> data) {
+    final name = data['name'] ?? 'N/A';
+    final specializations = (data['specializations'] as List<dynamic>? ?? [])
+        .join(', ');
+    final imageUrl = data['image'] as String?;
+    final professorId = data['id'];
+
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => ProfessorDetailPage(
-              data: {
-                'id': professor.facultyId,
-                'name': professor.fullName,
-                'email': professor.email,
-                'department': professor.cleanDepartment,
-                'specializations': professor.cleanExpertise,
-                'Image': professor.image,
-                'is_guide': professor.cleanIsGuide,
-                'availability': professor.availability,
-              },
-            ),
-          ),
+          MaterialPageRoute(builder: (_) => ProfessorDetailPage(data: data)),
         );
       },
       child: Container(
@@ -192,7 +188,7 @@ class _ProfessorsListPageState extends State<ProfessorsListPage> {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 2),
             ),
@@ -200,39 +196,15 @@ class _ProfessorsListPageState extends State<ProfessorsListPage> {
         ),
         child: Row(
           children: [
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: primaryBlue.withOpacity(0.1),
-              ),
-              child: isValidImageUrl(professor.image)
-                  ? FastNetworkImage(
-                      imageUrl: professor.image!,
-                      width: 60,
-                      height: 60,
-                      fit: BoxFit.cover,
-                      placeholder: Container(
-                        width: 60,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: primaryBlue.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.person,
-                          color: primaryBlue,
-                          size: 30,
-                        ),
-                      ),
-                      errorWidget: const Icon(
-                        Icons.person,
-                        color: primaryBlue,
-                        size: 30,
-                      ),
-                    )
-                  : const Icon(Icons.person, color: primaryBlue, size: 30),
+            CircleAvatar(
+              radius: 30,
+              backgroundColor: primaryBlue.withValues(alpha: 0.1),
+              backgroundImage: imageUrl != null && imageUrl.isNotEmpty
+                  ? NetworkImage(imageUrl)
+                  : null,
+              child: imageUrl == null || imageUrl.isEmpty
+                  ? const Icon(Icons.person, color: primaryBlue)
+                  : null,
             ),
             const SizedBox(width: 16),
 
@@ -240,42 +212,35 @@ class _ProfessorsListPageState extends State<ProfessorsListPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  /// NAME
-                  Text(
-                    professor.fullName,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 17,
-                      color: textBody,
-                    ),
+                  /// NAME + STATUS
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 17,
+                            color: textBody,
+                          ),
+                        ),
+                      ),
+                      _statusBadge(data),
+                    ],
                   ),
 
                   const SizedBox(height: 4),
 
-                  /// DEPARTMENT
-                  Text(
-                    professor.cleanDepartment,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: textSubtle,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-
-                  const SizedBox(height: 2),
-
-                  /// EXPERTISE
-                  if (professor.cleanExpertise.isNotEmpty)
+                  if (specializations.isNotEmpty)
                     Text(
-                      professor.cleanExpertise,
+                      specializations,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: textSubtle),
                     ),
 
                   const SizedBox(height: 6),
-                  _ratingWidget(professor.facultyId),
+                  _ratingWidget(professorId),
                 ],
               ),
             ),
@@ -292,7 +257,59 @@ class _ProfessorsListPageState extends State<ProfessorsListPage> {
   }
 
   // ------------------------------------------------------------------
-  // ⭐ RATING WIDGET
+  // STATUS BADGE
+  Widget _statusBadge(Map<String, dynamic> data) {
+    final availability = data['availability'] as Map<String, dynamic>? ?? {};
+
+    final result = ProfessorStatusHelper.calculate(availability);
+
+    // Don't show any badge outside college hours (before 9AM or after 5PM)
+    if (result.status == ProfessorStatus.outsideCollegeHours) {
+      return const SizedBox.shrink();
+    }
+
+    Color color;
+    String text;
+
+    switch (result.status) {
+      case ProfessorStatus.inCabin:
+        color = Colors.green;
+        text = "IN CABIN";
+        break;
+      case ProfessorStatus.busy:
+        color = Colors.orange;
+        text = result.nextAvailableIn != null
+            ? "BUSY • ${result.nextAvailableIn!.inMinutes} min"
+            : "BUSY";
+        break;
+      default:
+        color = Colors.red;
+        text = "ABSENT";
+    }
+
+    return _badge(text, color);
+  }
+
+  Widget _badge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // ⭐ RATING WIDGET (UNCHANGED)
   Widget _ratingWidget(String professorId) {
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance

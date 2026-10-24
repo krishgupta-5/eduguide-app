@@ -1,0 +1,12 @@
+model: community/scriptsnsenses-sys/flux-2-dev-free
+seed: 21
+
+Create one complete full-bleed 1:1 square image.
+Background: fill the entire square with solid very dark navy charcoal (#121A2B). Keep it visible in every open area and in all four corners.
+Subject: place one extremely simplified a graduation mortarboard cap seen straight from the front, built from one wide flat off-white diamond board above a short trapezoid cap, with one straight royal blue tassel bar dropping down the vertical center on the background (slightly wider proportions), reduced to one strong continuous silhouette and one defining feature.
+Complexity: use only 4-7 large basic geometric shapes and at most two broad internal color regions. Remove every nonessential line, outline, anatomical detail, texture, and decoration. Keep it readable at 32 x 32.
+Color behavior: use exactly three colors in the complete image: off-white (#F4F4F0), bright royal blue (#407BFF), and the background. Keep the subject and background clearly separated.
+Composition: keep the subject upright, perfectly centered and symmetric, filling about 62% of the square with even empty space on all sides. Preserve both members of any paired feature.
+Style: raw, severe, confident, technical and premium. Bold, sharp, clean flat geometry with crisp straight edges. Not cute, not cartoon, not a mascot, no eyes with pupils, no smile.
+Finish: show only the subject on the full-canvas background, with clean surfaces and normal square outer corners.
+Constraints: Use no text, letters or watermark. Add no borders, frames, cards, rounded tiles, or presentation masks. One subject only, no scenery. No glow, no gradients, no photorealistic material, no bevel, no strong three-dimensional rendering, no cast shadow. Keep the background solid and uniform, with no texture, vignette, or lighting variation.

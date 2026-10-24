@@ -1,0 +1,11 @@
+{
+  "model": "openai/gpt-image-2",
+  "background": "solid very dark navy charcoal (#121A2B)",
+  "mark": "off-white (#F4F4F0)",
+  "accent": "bright royal blue (#407BFF)",
+  "directions": {
+    "A": "an open book seen straight from the front whose two broad flat page planes sweep upward from a single center spine into a rising V like an arrow; off-white pages, the right page edge solid royal blue",
+    "B": "a graduation mortarboard cap seen straight from the front, built from one wide flat off-white diamond board above a short trapezoid cap, with one straight royal blue tassel bar dropping down the vertical center",
+    "C": "a four-point compass navigation star built from four large flat triangles meeting at the center, the upper two triangles off-white and the lower two solid royal blue, enclosed by nothing"
+  }
+}
